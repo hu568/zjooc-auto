@@ -1,10 +1,11 @@
 // ==UserScript==
 // @name         ZJOOC 在浙学 自动刷课助手
 // @namespace    https://github.com/local/zjooc-auto
-// @version      1.1.1
+// @version      1.1.2
 // @description  在浙学(zjooc.cn)自动刷课：自动播放 / 倍速 / 静音 / 自动下一节 / 图文自动完成 / 弹题自动作答 / 悬浮控制面板
 // @author       local
-// @match        *://www.zjooc.cn/ucenter/student/course/study/*
+// @match        *://www.zjooc.cn/*
+// @match        *://zjooc.cn/*
 // @grant        none
 // @run-at       document-idle
 // @license      MIT
@@ -38,7 +39,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.1';
+  var VERSION = '1.1.2';
   if (window.__ZJOOC_AUTO__ && window.__ZJOOC_AUTO__.version === VERSION) return;
 
   // ============================================================
