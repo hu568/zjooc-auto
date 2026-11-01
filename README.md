@@ -86,6 +86,24 @@ node test/test.cjs novue    # 无 Vue 实例时的 DOM 兜底
 测试用 playwright-core 驱动本机 Chrome 加载 `test/mock.html`（模拟学习页）。
 默认寻找 OCS Desktop 自带的浏览器与 playwright-core，也可用环境变量 `CHROME_PATH` / `PW_CORE` 指定。
 
+## 常见问题
+
+**Q：`https://github.com/<user>/<repo>/blob/main/zjooc-auto.user.js` 为什么填进去报"脚本格式不正确"？**
+
+那个地址是 GitHub 的**网页（HTML）**，不是脚本文本。OCS Desktop 的「网络脚本」会先 GET 这个地址、再从返回内容里解析 `// ==UserScript==` 元数据，
+HTML 里当然没有 → 直接判定格式不正确；就算绕过校验，ScriptCat 拿到的也只是一张网页。
+
+要用**原始文本**地址：
+
+- 可以直连 raw 时：`https://raw.githubusercontent.com/hu568/zjooc-auto/main/zjooc-auto.user.js`
+- 国内网络（raw 被 reset）：`https://ghproxy.net/https://raw.githubusercontent.com/hu568/zjooc-auto/main/zjooc-auto.user.js`
+
+另外 `https://github.com/.../raw/...` 会 302 跳到 `raw.githubusercontent.com`，国内同样会被 reset，所以也建议直接用镜像地址。
+
+**Q：OCS 启动时一直卡在"正在安装用户脚本…"？**
+
+不要用 OCS 的「添加本地脚本」（内部拼的是 `file://` 地址，扩展默认无文件访问权限），改用上面的网络脚本地址。
+
 ## 已知限制
 
 - 个别课程使用第三方播放器（`resourceUrl` 含 `moocollege.com`，可能在 iframe 里）。脚本找不到 `video` 会等待 25s 后**暂停并提示**，不会瞎点「完成」跳过未观看的视频。
