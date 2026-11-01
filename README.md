@@ -28,6 +28,7 @@
 | 图文 / PDF / 音频 | 自动点「完成学习」，等待（默认 8s）后进下一节 |
 | 弹题自动作答 | 视频播放到时间点弹出的「答题」框，直接取题目数据里的 `rightAnswer` 作答并恢复播放 |
 | 后台播放 | 伪造 `document.hidden / visibilityState`，并每 30s 模拟鼠标移动 |
+| 卡住自动恢复 / 刷新 | 15s 无进度 → 逐级尝试恢复（play → 点播放层 → 调站点播放器）；连续 3 次仍不行就**自动刷新页面**重试，同章最多 3 次、60s 冷却，播过 30s 后计数清零 |
 | 悬浮面板 | 可拖动 / 折叠，显示状态、当前章节、完成数、日志，可随时开始 / 暂停 / 下一节 |
 | 配置持久化 | 设置存在 `localStorage`（`zjooc_auto_settings_v1`） |
 
@@ -91,6 +92,7 @@ OCS Desktop 的浏览器是「Chrome for Testing + ScriptCat」，**不要**用�
 node test/test.cjs normal   # 视频 → 图文 → 视频（含弹题）
 node test/test.cjs skip     # 跳过已完成
 node test/test.cjs novue    # 无 Vue 实例时的 DOM 兜底
+node test/test.cjs stall    # 视频卡死 → 多次恢复失败 → 自动刷新页面
 ```
 
 测试用 playwright-core 驱动本机 Chrome 加载 `test/mock.html`（模拟学习页）。

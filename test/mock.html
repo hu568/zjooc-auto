@@ -41,6 +41,7 @@ body{margin:0;font-family:sans-serif}
 window.__MOCK__ = { nav: [], answers: [], finishText: [], speeds: [], muted: [], videos: {} };
 var PARAMS = new URLSearchParams(location.search);
 var NOVUE = PARAMS.get('novue') === '1';
+var STALL = PARAMS.get('stall') === '1';   // 模拟"播着播着卡住"：时间永远不前进
 var courseId = '9';
 var chapters = [
   { id: '1', name: '第1章 概述', children: [
@@ -79,6 +80,7 @@ function makeVideo(id){
   v.play = function(){ st.paused = false; return Promise.resolve(); };
   v.pause = function(){ st.paused = true; };
   setInterval(function(){
+    if (STALL) return;   // 卡住模式：currentTime 不前进
     if (st.paused || st.ended) return;
     st.t = Math.min(8, st.t + st.rate * 0.25);
     if (st.t >= 8) { st.ended = true; st.paused = true; }

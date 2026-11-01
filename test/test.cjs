@@ -65,16 +65,40 @@ const server = http.createServer((req, res) => {
   page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
 
   const mode = process.argv[2] || 'normal';
-  const qs = mode === 'skip' ? '?skip111=1' : mode === 'novue' ? '?novue=1' : '';
+  const qs = mode === 'skip' ? '?skip111=1' : mode === 'novue' ? '?novue=1' : mode === 'stall' ? '?stall=1' : '';
+
+  let navCount = 0;
+  page.on('framenavigated', (f) => { if (f === page.mainFrame()) navCount++; });
+
   await page.goto('http://127.0.0.1:' + port + PAGE_PATH + qs);
 
-  await page.evaluate(() => {
+  await page.evaluate((stall) => {
     localStorage.setItem('zjooc_auto_settings_v1', JSON.stringify({
       autoStart: true, rate: 2, mute: true, autoNext: true, skipDone: true,
-      autoAnswer: true, background: false, docWait: 2
+      autoAnswer: true, background: false, docWait: 2,
+      // 卡住模式：把判定窗口缩短，测试跑得快一点
+      stuckMs: stall ? 3000 : 15000,
+      maxReload: 2,
+      autoReload: true
     }));
-  });
+  }, mode === 'stall');
   await page.addScriptTag({ content: CODE });
+
+  // 卡住场景：只验证"多次恢复失败后会自动刷新页面"
+  if (mode === 'stall') {
+    const t0 = Date.now();
+    let reloaded = false;
+    while (Date.now() - t0 < 45000) {
+      if (navCount >= 2) { reloaded = true; break; }
+      await page.waitForTimeout(500);
+    }
+    const st = await page.evaluate(() => ({ nav: window.__MOCK__ ? window.__MOCK__.nav : null })).catch(() => ({}));
+    console.log(JSON.stringify({ mode, reloaded, navCount, mock: st }, null, 2));
+    process.exitCode = reloaded ? 0 : 1;
+    await browser.close();
+    server.close();
+    return;
+  }
 
   let result;
   try {

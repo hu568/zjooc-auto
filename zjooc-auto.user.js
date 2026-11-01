@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZJOOC 在浙学 自动刷课助手
 // @namespace    https://github.com/local/zjooc-auto
-// @version      1.1.3
+// @version      1.2.0
 // @description  在浙学(zjooc.cn)自动刷课：自动播放 / 倍速 / 静音 / 自动下一节 / 图文自动完成 / 弹题自动作答 / 悬浮控制面板
 // @author       local
 // @match        *://www.zjooc.cn/*
@@ -41,7 +41,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.3';
+  var VERSION = '1.2.0';
   if (window.__ZJOOC_AUTO__ && window.__ZJOOC_AUTO__.version === VERSION) return;
 
   // ============================================================
@@ -57,7 +57,10 @@
     skipDone: true,    // 跳过已完成
     autoAnswer: true,  // 弹题自动作答
     background: true,  // 后台播放（伪造可见性 / 定期模拟鼠标活动）
-    docWait: 8         // 图文/PDF 等待秒数
+    docWait: 8,        // 图文/PDF 等待秒数
+    autoReload: true,  // 播放反复卡住时自动刷新页面
+    maxReload: 3,      // 同一章节最多自动刷新次数
+    stuckMs: 15000     // 多久没有进度算"卡住"（毫秒）
   };
 
   var cfg = loadSettings();
@@ -420,6 +423,9 @@
     tailAt: 0,
     waitVideoAt: 0,
     pausedAt: 0,
+    stuckAttempts: 0,
+    lastProgressAt: 0,
+    reloadCleared: '',
     doneIds: {},
     quizKey: '',
     quizTries: 0,
@@ -445,6 +451,8 @@
     S.tailAt = 0;
     S.waitVideoAt = 0;
     S.pausedAt = 0;
+    S.stuckAttempts = 0;
+    S.lastProgressAt = Date.now();
     if (S.phase !== 'NAV') setPhase('IDLE');
     renderCourse();
   }
@@ -537,6 +545,68 @@
     log('进入非视频章节：' + nameOf(item) + '（类型 ' + type + '）');
   }
 
+  /** 逐级尝试恢复播放：直接 play → 点中央播放层 → 调站点播放器接口 */
+  function recoverVideo(video, vm) {
+    if (!video) return;
+    try { if (cfg.mute) video.muted = true; } catch (e) { /* ignore */ }
+    try { video.play(); } catch (e) { /* ignore */ }
+    if (video.paused) {
+      Site.clickCenter();
+      setTimeout(function () {
+        try { video.play(); } catch (e) { /* ignore */ }
+      }, 600);
+    }
+    try {
+      var player = vm && vm.player;
+      if (player && video.paused) {
+        if (typeof player.playOrPause === 'function') player.playOrPause();
+        else if (player.player && typeof player.player.play === 'function') player.player.play();
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  var LAST_RELOAD_KEY = 'zjooc_auto_last_reload_at';
+  function reloadKey(id) { return 'zjooc_auto_reload_' + id; }
+  function getReloadCount(id) {
+    try { return Number(sessionStorage.getItem(reloadKey(id)) || 0) || 0; } catch (e) { return 0; }
+  }
+  function setReloadCount(id, n) {
+    try { sessionStorage.setItem(reloadKey(id), String(n)); } catch (e) { /* ignore */ }
+  }
+
+  /** 多次恢复失败后刷新页面（带次数上限与冷却，避免死循环） */
+  function tryAutoReload(vm) {
+    if (!cfg.autoReload) {
+      setStatus('多次恢复失败（自动刷新已关闭）');
+      return;
+    }
+    var id = Site.currentId();
+    var max = Math.max(1, Number(cfg.maxReload) || 3);
+    var n = getReloadCount(id);
+    var last = 0;
+    try { last = Number(sessionStorage.getItem(LAST_RELOAD_KEY) || 0) || 0; } catch (e) { /* ignore */ }
+
+    if (Date.now() - last < 60000) {
+      log('距上次自动刷新不足 60s，先等待（避免刷新死循环）');
+      setStatus('卡住了，等 60s 冷却后再刷新…');
+      return;
+    }
+    if (n >= max) {
+      setPhase('STUCK');
+      setStatus('本章已自动刷新 ' + n + ' 次仍卡住，请手动刷新或点「下一节」');
+      log('自动刷新已达上限（' + n + ' 次），停止自动刷新', 'error');
+      return;
+    }
+
+    setReloadCount(id, n + 1);
+    try { sessionStorage.setItem(LAST_RELOAD_KEY, String(Date.now())); } catch (e) { /* ignore */ }
+    log('多次恢复失败，自动刷新页面（本章第 ' + (n + 1) + '/' + max + ' 次）');
+    setStatus('卡住了，正在刷新页面…');
+    S.running = false;
+    renderControls();
+    setTimeout(function () { location.reload(); }, 300);
+  }
+
   function stepPlay(vm, curId) {
     var video = Site.video();
     if (!video) {
@@ -575,17 +645,25 @@
 
     if (Site.tabCompleted()) { finishCurrent(vm, '站点已标记完成'); return; }
 
-    // 播放停滞检测
+    // 播放停滞检测 → 逐级恢复 → 仍失败则自动刷新页面
     var now = Date.now();
     var t = Math.floor(video.currentTime || 0);
+    var stuckMs = Math.max(3000, Number(cfg.stuckMs) || 15000);
     if (t !== S.lastTime) {
+      if (t > S.lastTime) { S.lastProgressAt = now; S.stuckAttempts = 0; }
       S.lastTime = t;
       S.lastTimeAt = now;
-    } else if (now - S.lastTimeAt > 15000) {
-      log('检测到播放停滞，尝试恢复…');
-      try { video.play(); } catch (e) { /* ignore */ }
-      if (video.paused) Site.clickCenter();
+      // 真正播起来一段之后，把本章的自动刷新计数清掉
+      if (t >= 30 && S.reloadCleared !== curId) {
+        S.reloadCleared = curId;
+        setReloadCount(curId, 0);
+      }
+    } else if (now - S.lastTimeAt > stuckMs) {
       S.lastTimeAt = now;
+      S.stuckAttempts++;
+      log('播放停滞（第 ' + S.stuckAttempts + ' 次，' + Math.round(stuckMs / 1000) + 's 无进度），尝试恢复…');
+      recoverVideo(video, vm);
+      if (S.stuckAttempts >= 3) tryAutoReload(vm);
     }
 
     var pct = dur > 0 ? Math.floor((video.currentTime / dur) * 100) : 0;
@@ -844,7 +922,7 @@
   // ============================================================
   var ui = { host: null, shadow: null, status: null, course: null, logBox: null,
              btnToggle: null, selRate: null, cbMute: null, cbNext: null, cbSkip: null,
-             cbAnswer: null, cbBg: null };
+             cbAnswer: null, cbBg: null, cbReload: null };
 
   var PANEL_CSS = ''
     + ':host{all:initial}'
@@ -899,11 +977,15 @@
       + '      <label><input type="checkbox" id="next"> 自动切换</label></div>'
       + '    <div class="row"><label><input type="checkbox" id="skip"> 跳过已完成</label>'
       + '      <label><input type="checkbox" id="answer"> 自动答题</label></div>'
-      + '    <div class="row"><label><input type="checkbox" id="bg"> 后台播放</label></div>'
+      + '    <div class="row"><label><input type="checkbox" id="bg"> 后台播放</label>'
+      + '      <label><input type="checkbox" id="autoReload"> 卡住自动刷新</label></div>'
       + '    <div class="btns">'
       + '      <button id="toggle">开始</button>'
       + '      <button id="skipNow" class="ghost">下一节</button>'
+      + '    </div>'
+      + '    <div class="btns">'
       + '      <button id="diag" class="ghost">诊断</button>'
+      + '      <button id="reload" class="ghost">刷新</button>'
       + '    </div>'
       + '    <div class="log" id="log"></div>'
       + '  </div>'
@@ -924,6 +1006,7 @@
     ui.cbSkip = shadow.getElementById('skip');
     ui.cbAnswer = shadow.getElementById('answer');
     ui.cbBg = shadow.getElementById('bg');
+    ui.cbReload = shadow.getElementById('autoReload');
 
     // 初始值
     ui.selRate.value = String(cfg.rate);
@@ -932,6 +1015,7 @@
     ui.cbSkip.checked = !!cfg.skipDone;
     ui.cbAnswer.checked = !!cfg.autoAnswer;
     ui.cbBg.checked = !!cfg.background;
+    ui.cbReload.checked = !!cfg.autoReload;
 
     ui.selRate.addEventListener('change', function () {
       cfg.rate = Number(ui.selRate.value) || 1;
@@ -947,6 +1031,11 @@
     ui.cbNext.addEventListener('change', function () { cfg.autoNext = !!ui.cbNext.checked; saveSettings(); });
     ui.cbSkip.addEventListener('change', function () { cfg.skipDone = !!ui.cbSkip.checked; saveSettings(); });
     ui.cbAnswer.addEventListener('change', function () { cfg.autoAnswer = !!ui.cbAnswer.checked; saveSettings(); });
+    ui.cbReload.addEventListener('change', function () {
+      cfg.autoReload = !!ui.cbReload.checked;
+      saveSettings();
+      setStatus(cfg.autoReload ? '卡住时最多自动刷新 ' + cfg.maxReload + ' 次' : '已关闭卡住自动刷新');
+    });
     ui.cbBg.addEventListener('change', function () {
       cfg.background = !!ui.cbBg.checked; saveSettings();
       if (cfg.background) installAntiDetect();
@@ -964,6 +1053,14 @@
     });
     shadow.getElementById('diag').addEventListener('click', function () {
       copyDiagnose();
+    });
+    shadow.getElementById('reload').addEventListener('click', function () {
+      log('手动刷新页面…');
+      location.reload();
+    });
+    shadow.getElementById('reload').addEventListener('click', function () {
+      log('手动刷新页面…');
+      location.reload();
     });
     shadow.getElementById('collapse').addEventListener('click', function () {
       var wrap = shadow.getElementById('wrap');
