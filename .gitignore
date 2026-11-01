@@ -1,0 +1,14 @@
+# 调研留档（站点前端第三方打包产物，体积大且非本项目代码）
+ref/
+TMP/
+tools/
+# 本机内部笔记
+MEMORY.md
+PLAN/
+# 只为本地跑 prettier 装的
+node_modules/
+package.json
+package-lock.json
+# 系统垃圾
+Thumbs.db
+.DS_Store

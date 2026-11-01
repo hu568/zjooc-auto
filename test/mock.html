@@ -1,0 +1,216 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>mock zjooc study</title>
+<style>
+body{margin:0;font-family:sans-serif}
+.plan-detail{position:fixed;inset:0;display:flex;flex-direction:column}
+.el-header{height:40px;background:#001e2b;color:#fff;line-height:40px;padding-left:10px}
+.el-header ul{display:inline;margin:0;padding:0}
+.el-header li{display:inline-block;margin-right:20px}
+.main{display:flex;flex:1;min-height:0}
+.base-asider{width:310px;overflow:auto;background:#fafafa;border-right:1px solid #ddd}
+.el-main{flex:1;min-width:0}
+.plan-detailvideo{height:100%}
+.el-tabs__nav{display:flex;gap:8px;background:#000;padding:0 8px}
+.el-tabs__item{padding:8px 12px;color:#fff;cursor:pointer}
+.el-tabs__item.is-active{background:#1192ff}
+.contain{padding:10px}
+.contain-video{height:280px;background:#000}
+.contain-video video{width:100%;height:100%}
+.contain-bottom{margin-top:10px}
+.el-menu-item{padding:8px;cursor:pointer}
+.el-submenu__title{padding:8px;font-weight:700;cursor:pointer;background:#f0f0f0}
+.el-menu-item.is-active{color:#409EFF;background:#fff}
+.el-dialog__wrapper{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:999}
+.el-dialog{background:#fff;padding:16px 20px;min-width:320px;border-radius:6px}
+.dialog-footer{margin-top:12px;text-align:right}
+</style></head>
+<body>
+<div class="plan-detail">
+  <div class="el-header"><ul id="crumb"></ul></div>
+  <div class="main">
+    <aside class="base-asider" id="aside"></aside>
+    <main class="el-main">
+      <div class="plan-detailvideo" id="pv">
+        <div class="el-tabs__nav" id="tabs"></div>
+        <div class="contain" id="pane"></div>
+      </div>
+    </main>
+  </div>
+</div>
+<script>
+window.__MOCK__ = { nav: [], answers: [], finishText: [], speeds: [], muted: [], videos: {} };
+var PARAMS = new URLSearchParams(location.search);
+var NOVUE = PARAMS.get('novue') === '1';
+var courseId = '9';
+var chapters = [
+  { id: '1', name: '第1章 概述', children: [
+    { id: '11', name: '1.1 初识', children: [
+      { id: '111', name: '视频A', resourceType: 1, learnStatus: 0 },
+      { id: '112', name: '图文B', resourceType: 4, learnStatus: 0 }
+    ]},
+    { id: '12', name: '1.2 深入', children: [
+      { id: '121', name: '视频C', resourceType: 1, learnStatus: 0 }
+    ]}
+  ]}
+];
+if (PARAMS.get('skip111') === '1') {
+  chapters[0].children[0].children[0].learnStatus = 2;
+}
+function findLeaf(id){
+  for (var c of chapters) for (var s of c.children) for (var l of s.children)
+    if (String(l.id) === String(id)) return { chapter: c, section: s, leaf: l };
+  return null;
+}
+function currentId(){
+  var m = location.pathname.match(/\/plan\/detail\/([^\/]+)/);
+  return m ? m[1] : '111';
+}
+var videoCache = {};
+function makeVideo(id){
+  if (videoCache[id]) return videoCache[id];
+  var v = document.createElement('video');
+  var st = { t: 0, paused: true, rate: 1, muted: false, ended: false };
+  Object.defineProperty(v, 'currentTime', { get: function(){ return st.t; }, set: function(x){ st.t = x; } });
+  Object.defineProperty(v, 'duration', { get: function(){ return 8; } });
+  Object.defineProperty(v, 'paused', { get: function(){ return st.paused; } });
+  Object.defineProperty(v, 'ended', { get: function(){ return st.ended; } });
+  Object.defineProperty(v, 'playbackRate', { get: function(){ return st.rate; }, set: function(x){ st.rate = x; window.__MOCK__.speeds.push(x); } });
+  Object.defineProperty(v, 'muted', { get: function(){ return st.muted; }, set: function(x){ st.muted = x; window.__MOCK__.muted.push(x); } });
+  v.play = function(){ st.paused = false; return Promise.resolve(); };
+  v.pause = function(){ st.paused = true; };
+  setInterval(function(){
+    if (st.paused || st.ended) return;
+    st.t = Math.min(8, st.t + st.rate * 0.25);
+    if (st.t >= 8) { st.ended = true; st.paused = true; }
+    if (String(id) === '121' && st.t >= 2 && !window.__MOCK__.quizShown) {
+      window.__MOCK__.quizShown = true;
+      st.paused = true;
+      showQuiz();
+    }
+  }, 250);
+  videoCache[id] = v;
+  return v;
+}
+var quizVM = null;
+function showQuiz(){
+  window.__MOCK__.quizAt = '121';
+  var w = document.createElement('div');
+  w.className = 'el-dialog__wrapper';
+  w.innerHTML = '<div class="el-dialog"><div class="el-dialog__title">答题</div>'
+    + '<div>1+1 等于几？</div><div class="dialog-footer"><button class="el-button">确 定</button></div></div>';
+  document.body.appendChild(w);
+  var data = { name: '1+1 等于几？', type: 1, rightAnswer: 'B', options: ['A. 1','B. 2'] };
+  quizVM = {
+    doTaskContent: data,
+    $set: function(o,k,v){ o[k] = v; },
+    handleSubmit: function(){
+      window.__MOCK__.answers.push({ answer: data.answer, right: data.rightAnswer });
+      if (String(data.answer) === String(data.rightAnswer)) {
+        w.remove();
+        quizVM = null;
+        var v = videoCache['121'];
+        if (v) v.play();
+      } else {
+        // 答错保持弹窗
+      }
+    },
+    $parent: null
+  };
+  w.__vue__ = quizVM;
+}
+function render(){
+  var cur = findLeaf(currentId()) || findLeaf('111');
+  var leaf = cur.leaf;
+  // 面包屑
+  document.getElementById('crumb').innerHTML =
+    '<li>' + cur.chapter.name + '</li><li>' + cur.section.name + '</li><li>' + leaf.name + '</li>';
+  // 侧栏
+  var aside = document.getElementById('aside');
+  aside.innerHTML = '';
+  chapters.forEach(function(ch){
+    var sub = document.createElement('div');
+    sub.className = 'el-submenu';
+    var title = document.createElement('div');
+    title.className = 'el-submenu__title';
+    title.innerHTML = '<span class="of_eno">' + ch.name + '</span>';
+    sub.appendChild(title);
+    var ul = document.createElement('ul');
+    ul.className = 'el-menu';
+    ch.children.forEach(function(sec){
+      var li = document.createElement('li');
+      li.className = 'el-menu-item' + (sec.id === cur.section.id ? ' is-active' : '');
+      li.innerHTML = '<span class="of_eno">' + sec.name + '</span>';
+      li.addEventListener('click', function(){ studyVM.fowardDetail(sec); });
+      ul.appendChild(li);
+    });
+    sub.appendChild(ul);
+    if (ch.id === cur.chapter.id) sub.classList.add('is-active', 'is-opened');
+    aside.appendChild(sub);
+  });
+  // tabs
+  var tabs = document.getElementById('tabs');
+  tabs.innerHTML = '';
+  cur.section.children.forEach(function(item){
+    var t = document.createElement('div');
+    t.className = 'el-tabs__item' + (item.id === leaf.id ? ' is-active' : '');
+    var icon = item.resourceType === 1 ? 'iconfont icon-shipin' : 'iconfont icon-file';
+    if (Number(item.learnStatus) === 2) icon += ' complete';
+    t.innerHTML = '<span class="label"><i class="' + icon + '"></i><span>' + item.name + '</span></span>';
+    t.addEventListener('click', function(){ navigate(item.id); });
+    tabs.appendChild(t);
+  });
+  // pane
+  var pane = document.getElementById('pane');
+  pane.innerHTML = '';
+  if (Number(leaf.resourceType) === 1) {
+    var box = document.createElement('div');
+    box.className = 'contain-video';
+    box.appendChild(makeVideo(leaf.id));
+    pane.appendChild(box);
+  } else {
+    pane.innerHTML = '<div class="contain-item-main">图文内容</div>'
+      + '<div class="contain-bottom"><button class="el-button">完成学习</button></div>';
+    var btn = pane.querySelector('.el-button');
+    btn.addEventListener('click', function(){ finishText(leaf.id); });
+  }
+  // 同步 vue
+  studyVM.thisData = [cur.chapter, cur.section, leaf];
+  studyVM.detailData = cur.section;
+  if (!NOVUE) {
+    document.querySelector('.plan-detail').__vue__ = studyVM;
+    document.querySelector('.plan-detailvideo').__vue__ = playerVM;
+  }
+  window.__MOCK__.nav.push(leaf.id);
+}
+function navigate(id){
+  history.pushState({}, '', '/ucenter/student/course/study/' + courseId + '/plan/detail/' + id);
+  render();
+}
+function finishText(id){
+  window.__MOCK__.finishText.push(id);
+  var f = findLeaf(id);
+  if (f) f.leaf.learnStatus = 2;
+  setTimeout(function(){ if (currentId() === id) render(); }, 100);
+}
+var studyVM = {
+  list: chapters,
+  thisData: [],
+  detailData: null,
+  publishStatus: 1,
+  tabClick: function(tab){ navigate(tab.name); },
+  fowardDetail: function(section){ navigate(section.children[0].id); },
+  initPlan: function(id){ var f = findLeaf(id); if (f) { studyVM.thisData = [f.chapter, f.section, f.leaf]; studyVM.detailData = f.section; } },
+  finishText: function(){ finishText(currentId()); },
+  initChapterList: function(){},
+  $router: { push: function(url){ navigate(url.split('/').pop()); } }
+};
+var playerVM = {
+  doTaskContent: null,
+  dialogVisible: false,
+  progressInfo: { percent: 0, playTime: 0 },
+  handleSubmit: function(){ if (quizVM) quizVM.handleSubmit(); }
+};
+window.addEventListener('popstate', render);
+render();
+</script>
+</body></html>
