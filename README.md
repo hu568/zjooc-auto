@@ -10,6 +10,7 @@
 | 用途 | 地址 |
 | --- | --- |
 | 仓库 | <https://github.com/hu568/zjooc-auto> |
+| **GitHub Pages（推荐，已验证 200）** | `https://hu568.github.io/zjooc-auto/zjooc-auto.user.js` |
 | 原始地址 | `https://raw.githubusercontent.com/hu568/zjooc-auto/main/zjooc-auto.user.js` |
 | 国内镜像（raw 被 reset 时用） | `https://ghproxy.net/https://raw.githubusercontent.com/hu568/zjooc-auto/main/zjooc-auto.user.js` |
 
@@ -34,6 +35,9 @@
 
 脚本是标准 `.user.js`，任何用户脚本管理器都能装（ScriptCat / Tampermonkey / Violentmonkey）。
 
+> 判断一个地址能不能用很简单：GET 回来的第一行必须是 `// ==UserScript==`，而不是 `<!DOCTYPE html>`。
+> GitHub 的 `/blob/` 页面是网页，不能用于安装。
+
 ### ScriptCat / Tampermonkey（推荐）
 
 1. 安装脚本管理器扩展；
@@ -48,14 +52,20 @@ OCS Desktop 的浏览器是「Chrome for Testing + ScriptCat」，**不要**用�
 > ⚠️ 已知坑：OCS 会把本地脚本拼成 `file://<路径>` 去导航，而 Chrome 扩展默认没有「允许访问文件网址」权限，
 > ScriptCat 在 `file://` 页面上拦截不到 `.user.js`，于是安装页永远不出现，OCS 会一直卡在 **「正在安装用户脚本…」**。
 
-正确做法（实测可用）：把脚本放进 OCS 自带的静态目录，用它的本地 HTTP 服务安装：
+正确做法（实测可用）：把脚本放进 OCS 自带的静态目录，用它的本地 HTTP 服务安装。
+
+**一键完成**（自动探测 OCS 安装目录、复制、并通过 `http://localhost:15319` 验证）：
 
 ```powershell
-Copy-Item .\zjooc-auto.user.js "<OCS安装目录>\resources\app\public\zjooc-auto.user.js"
+.\install.ps1
+# 自定义安装路径： .\install.ps1 -OcsPath "D:\Apps\OCS Desktop"
 ```
 
-然后在 OCS 的「用户脚本」页添加**网络脚本**：`http://localhost:15319/zjooc-auto.user.js`，
+脚本会打印要填的地址。然后到 OCS 的「用户脚本」页添加**网络脚本**：
+`http://localhost:15319/zjooc-auto.user.js`（或直接用 GitHub Pages 地址），
 启动浏览器后 ScriptCat 会弹安装页，OCS 自动点「安装」。
+
+> OCS 升级会覆盖 `resources\app`，升级后重新跑一次 `install.ps1` 即可。
 
 ## 使用
 
