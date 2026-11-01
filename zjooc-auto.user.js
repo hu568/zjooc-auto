@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZJOOC 在浙学 自动刷课助手
 // @namespace    https://github.com/local/zjooc-auto
-// @version      1.1.0
+// @version      1.1.1
 // @description  在浙学(zjooc.cn)自动刷课：自动播放 / 倍速 / 静音 / 自动下一节 / 图文自动完成 / 弹题自动作答 / 悬浮控制面板
 // @author       local
 // @match        *://www.zjooc.cn/ucenter/student/course/study/*
@@ -38,7 +38,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.0';
+  var VERSION = '1.1.1';
   if (window.__ZJOOC_AUTO__ && window.__ZJOOC_AUTO__.version === VERSION) return;
 
   // ============================================================
@@ -416,6 +416,7 @@
     lastTimeAt: 0,
     tailAt: 0,
     waitVideoAt: 0,
+    pausedAt: 0,
     doneIds: {},
     quizKey: '',
     quizTries: 0,
@@ -440,6 +441,7 @@
     S.lastTimeAt = Date.now();
     S.tailAt = 0;
     S.waitVideoAt = 0;
+    S.pausedAt = 0;
     if (S.phase !== 'NAV') setPhase('IDLE');
     renderCourse();
   }
@@ -545,7 +547,21 @@
 
     var now0 = Date.now();
     var dur = video.duration;
-    if (dur > 0 && video.currentTime >= dur - 1) {
+    var durOk = isFinite(dur) && dur > 0;
+
+    // 兜底：视频自己停住了（站点暂停在片尾 / duration 不可用），且已接近末尾
+    if (video.paused && video.currentTime > 0) {
+      if (!S.pausedAt) S.pausedAt = now0;
+      else if (now0 - S.pausedAt > 20000) {
+        if (durOk && video.currentTime >= dur * 0.97) { finishCurrent(vm, '站点暂停在片尾'); return; }
+        if (!durOk && Site.tabCompleted()) { finishCurrent(vm, '已标记完成'); return; }
+        S.pausedAt = 0;
+      }
+    } else {
+      S.pausedAt = 0;
+    }
+
+    if (durOk && video.currentTime >= dur - 1) {
       // 到片尾但还没触发 ended：等站点把 100% 上报完（最多 20s）
       if (!S.tailAt) S.tailAt = now0;
       if (now0 - S.tailAt > 20000) { finishCurrent(vm, '片尾未触发结束事件'); return; }
