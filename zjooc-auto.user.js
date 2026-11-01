@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ZJOOC 在浙学 自动刷课助手
 // @namespace    https://github.com/local/zjooc-auto
-// @version      1.0.0
+// @version      1.1.0
 // @description  在浙学(zjooc.cn)自动刷课：自动播放 / 倍速 / 静音 / 自动下一节 / 图文自动完成 / 弹题自动作答 / 悬浮控制面板
 // @author       local
 // @match        *://www.zjooc.cn/ucenter/student/course/study/*
@@ -38,7 +38,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.0.0';
+  var VERSION = '1.1.0';
   if (window.__ZJOOC_AUTO__ && window.__ZJOOC_AUTO__.version === VERSION) return;
 
   // ============================================================
@@ -149,11 +149,21 @@
       for (var n = 0; n < all.length; n++) if (String(all[n].leaf.id) === String(id)) return all[n];
       return null;
     },
-    /** 当前视频元素（只取播放区里的，避免误伤） */
+    /** 当前视频元素（只取播放区里的，避免误伤；同源 iframe 也找） */
     video: function () {
-      return document.querySelector('.plan-detailvideo .contain-video video') ||
-             document.querySelector('.plan-detailvideo video') ||
-             document.querySelector('video');
+      var v = document.querySelector('.plan-detailvideo .contain-video video') ||
+              document.querySelector('.plan-detailvideo video') ||
+              document.querySelector('video');
+      if (v) return v;
+      var frames = document.querySelectorAll('.plan-detailvideo iframe, iframe');
+      for (var i = 0; i < frames.length; i++) {
+        try {
+          var doc = frames[i].contentDocument;
+          var inner = doc && doc.querySelector('video');
+          if (inner) return inner;
+        } catch (e) { /* 跨域，忽略 */ }
+      }
+      return null;
     },
     /** tab 上是否已标记完成 */
     tabCompleted: function () {
@@ -469,6 +479,11 @@
     var item = currentInfo(vm);
     if (!item) { setStatus('未找到当前章节信息…'); return; }
 
+    if (S.doneIds[item.leaf.id]) {
+      log('本单元本次已学过，继续下一节：' + nameOf(item));
+      setPhase('DONE');
+      return;
+    }
     if (cfg.skipDone && Number(item.leaf.learnStatus) === 2) {
       log('跳过已完成：' + nameOf(item));
       setPhase('DONE');
@@ -612,7 +627,21 @@
     var curId = Site.currentId();
     var idx = -1;
     for (var i = 0; i < list.length; i++) { if (String(list[i].leaf.id) === String(curId)) { idx = i; break; } }
-    if (idx < 0) { setPhase('IDLE'); return; }
+    if (idx < 0) {
+      log('目录里找不到当前章节（list=' + list.length + ' 项，route=' + curId + '），改用页面点击', 'error');
+      if (gotoViaDom()) {
+        setPhase('NAV');
+        S.targetId = '';
+        S.navAt = Date.now();
+        S.navCorrected = false;
+        S.docClicked = false;
+        setStatus('跳转中…');
+      } else {
+        log('页面点击也找不到可跳转的下一节，停止', 'error');
+        finishAll();
+      }
+      return;
+    }
 
     var target = null;
     for (var j = idx + 1; j < list.length; j++) {
@@ -665,7 +694,7 @@
       return;
     }
 
-    if (elapsed > 9000) {
+    if (elapsed > 6000) {
       if (!S.navCorrected) {
         S.navCorrected = true;
         if (!gotoViaDom()) { log('跳转超时，等待人工处理', 'error'); }
@@ -686,6 +715,82 @@
     log('全部章节已完成 🎉', 'error');
     try { alert('ZJOOC 自动刷课：本次课程全部章节已完成！'); } catch (e) { /* ignore */ }
     renderControls();
+  }
+
+  // ============================================================
+  // 6.5 诊断快照（卡住时点面板「诊断」一键复制）
+  // ============================================================
+  function diagnose() {
+    var vm = null, pv = null, list = [];
+    try { vm = Site.getStudyVM(); } catch (e) { /* ignore */ }
+    try { pv = Site.getPlayerVM(); } catch (e) { /* ignore */ }
+    try { list = vm ? Site.flatten(vm) : []; } catch (e) { list = []; }
+    var item = null;
+    try { item = vm ? Site.currentItem(vm) : null; } catch (e) { /* ignore */ }
+    var v = Site.video();
+    var tabs = document.querySelectorAll('.plan-detailvideo .el-tabs__nav .el-tabs__item');
+    var activeTab = document.querySelector('.plan-detailvideo .el-tabs__nav .el-tabs__item.is-active');
+    var leaf = item && item.leaf ? item.leaf : null;
+    var curId = Site.currentId();
+    var curIndex = -1;
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i].leaf.id) === String(curId)) { curIndex = i; break; }
+    }
+    return {
+      version: VERSION,
+      url: location.pathname,
+      time: new Date().toLocaleString('zh-CN'),
+      running: S.running,
+      phase: S.phase,
+      status: S.status,
+      leafId: S.leafId,
+      targetId: S.targetId,
+      navAt: S.navAt,
+      navCorrected: S.navCorrected,
+      doneIds: Object.keys(S.doneIds),
+      hasStudyVM: !!vm,
+      hasPlayerVM: !!pv,
+      listLen: list.length,
+      curIndex: curIndex,
+      routeId: curId,
+      thisData: (vm && vm.thisData) ? vm.thisData.map(function (x) { return x && (x.name || x.id); }) : null,
+      leaf: leaf ? { id: leaf.id, name: leaf.name, resourceType: leaf.resourceType, learnStatus: leaf.learnStatus } : null,
+      video: v ? {
+        paused: v.paused, ended: v.ended, currentTime: v.currentTime, duration: v.duration,
+        rate: v.playbackRate, muted: v.muted, readyState: v.readyState
+      } : null,
+      tabs: tabs.length,
+      activeTabText: activeTab ? (activeTab.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 40) : null,
+      activeTabComplete: !!(activeTab && activeTab.querySelector('i.complete')),
+      logs: logLines.slice(-40)
+    };
+  }
+
+  function copyDiagnose() {
+    var data;
+    try { data = diagnose(); } catch (e) { data = { error: String(e) }; }
+    var text = '===== ZJOOC 诊断 =====\n' + JSON.stringify(data, null, 2);
+    try { console.log(text); } catch (e) { /* ignore */ }
+    var done = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+        done = true;
+      }
+    } catch (e) { /* ignore */ }
+    if (!done) {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+        done = true;
+      } catch (e) { /* ignore */ }
+    }
+    setStatus(done ? '诊断信息已复制到剪贴板' : '诊断信息已打印到控制台');
+    return data;
   }
 
   // ============================================================
@@ -779,6 +884,7 @@
       + '    <div class="btns">'
       + '      <button id="toggle">开始</button>'
       + '      <button id="skipNow" class="ghost">下一节</button>'
+      + '      <button id="diag" class="ghost">诊断</button>'
       + '    </div>'
       + '    <div class="log" id="log"></div>'
       + '  </div>'
@@ -836,6 +942,9 @@
       log('手动跳过当前章节');
       S.phase = 'DONE';
       stepNext(vm || Site.getStudyVM());
+    });
+    shadow.getElementById('diag').addEventListener('click', function () {
+      copyDiagnose();
     });
     shadow.getElementById('collapse').addEventListener('click', function () {
       var wrap = shadow.getElementById('wrap');
@@ -972,7 +1081,10 @@
     }
   }
 
-  window.__ZJOOC_AUTO__ = { version: VERSION, start: startRun, stop: stopRun, state: S, config: cfg };
+  window.__ZJOOC_AUTO__ = {
+    version: VERSION, start: startRun, stop: stopRun, state: S, config: cfg,
+    diag: diagnose, copyDiag: copyDiagnose
+  };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot, { once: true });
