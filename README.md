@@ -5,6 +5,16 @@
 
 > 只做「正常播完 + 自动切章节」，**不拖进度条、不直接调接口**。站点开了强制观看（`forceLook`），拖动会被拉回。
 
+## 安装地址
+
+| 用途 | 地址 |
+| --- | --- |
+| 仓库 | <https://github.com/hu568/zjooc-auto> |
+| 原始地址 | `https://raw.githubusercontent.com/hu568/zjooc-auto/main/zjooc-auto.user.js` |
+| 国内镜像（raw 被 reset 时用） | `https://ghproxy.net/https://raw.githubusercontent.com/hu568/zjooc-auto/main/zjooc-auto.user.js` |
+
+脚本管理器支持「从 URL 安装」时，直接填上面的镜像地址即可。
+
 ## 功能
 
 | 功能 | 说明 |
